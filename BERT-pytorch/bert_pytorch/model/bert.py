@@ -17,7 +17,6 @@ class BERT(nn.Module):
         :param attn_heads: number of attention heads
         :param dropout: dropout rate
         """
-
         super().__init__()
         self.hidden = hidden
         self.n_layers = n_layers

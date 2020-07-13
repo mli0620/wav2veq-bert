@@ -3,8 +3,8 @@ import argparse
 from torch.utils.data import DataLoader
 
 from model import BERT
-from trainer import BERTTrainer
-from dataset import BERTDataset, WordVocab
+from trainer import BERTTrainer,ASRTrainer
+from dataset import ASRDataset, WordVocab
 
 
 def train():
@@ -13,7 +13,8 @@ def train():
     parser.add_argument("-c", "--train_dataset", required=True, type=str, help="train dataset for train bert")
     parser.add_argument("-t", "--test_dataset", type=str, default=None, help="test set for evaluate train set")
     parser.add_argument("-v", "--vocab_path", required=True, type=str, help="built vocab model path with bert-vocab")
-    parser.add_argument("-o", "--output_path", required=True, type=str, help="ex)output/bert.model")
+    
+    parser.add_argument("-o", "--output_path", required=True, type=str, help="ex output/bert.model")
 
     parser.add_argument("-hs", "--hidden", type=int, default=256, help="hidden size of transformer model")
     parser.add_argument("-l", "--layers", type=int, default=8, help="number of layers")
@@ -24,7 +25,7 @@ def train():
     parser.add_argument("-e", "--epochs", type=int, default=10, help="number of epochs")
     parser.add_argument("-w", "--num_workers", type=int, default=5, help="dataloader worker size")
 
-    parser.add_argument("--with_cuda", type=bool, default=True, help="training with CUDA: true, or false")
+    parser.add_argument("--with_cuda", type=bool, default=False, help="training with CUDA: true, or false")
     parser.add_argument("--log_freq", type=int, default=10, help="printing loss every n iter: setting n")
     parser.add_argument("--corpus_lines", type=int, default=None, help="total number of lines in corpus")
     parser.add_argument("--cuda_devices", type=int, nargs='+', default=None, help="CUDA device ids")
@@ -36,20 +37,26 @@ def train():
     parser.add_argument("--adam_beta2", type=float, default=0.999, help="adam first beta value")
     
     parser.add_argument("--ckpt", type=str, default=None, help="checkpoint")
+    parser.add_argument( "--log_dir",  type=str, default='output/',help="ex output") 
+    
+    parser.add_argument("--trans_t", required=True, type=str, help="train transcript for train asr")
+    parser.add_argument("--asr_vocab", required=True, type=str, help="built vocab model path with asr-vocab")
+    parser.add_argument("--trans_v", type=str, default=None, help="val transcript for val asr")
 
 
     args = parser.parse_args()
     print(213213,args.with_cuda)
     print("Loading Vocab", args.vocab_path)
     vocab = WordVocab.load_vocab(args.vocab_path)
+    vocab_asr = WordVocab.load_vocab(args.asr_vocab)
     print("Vocab Size: ", len(vocab))
 
     print("Loading Train Dataset", args.train_dataset)
-    train_dataset = BERTDataset(args.train_dataset, vocab, seq_len=args.seq_len,
+    train_dataset = ASRDataset(args.train_dataset, vocab,args.trans_t,vocab_asr, seq_len=args.seq_len,
                                 corpus_lines=args.corpus_lines, on_memory=args.on_memory)
 
     print("Loading Test Dataset", args.test_dataset)
-    test_dataset = BERTDataset(args.test_dataset, vocab, seq_len=args.seq_len, on_memory=args.on_memory) \
+    test_dataset = ASRDataset(args.test_dataset, vocab,args.trans_v,vocab_asr, seq_len=args.seq_len, on_memory=args.on_memory) \
         if args.test_dataset is not None else None
 
     print("Creating Dataloader")
@@ -61,9 +68,9 @@ def train():
     bert = BERT(len(vocab), hidden=args.hidden, n_layers=args.layers, attn_heads=args.attn_heads)
 
     print("Creating BERT Trainer")
-    trainer = BERTTrainer(bert, len(vocab), train_dataloader=train_data_loader, test_dataloader=test_data_loader,
+    trainer = ASRTrainer(bert, len(vocab_asr), train_dataloader=train_data_loader, test_dataloader=test_data_loader,
                           lr=args.lr, betas=(args.adam_beta1, args.adam_beta2), weight_decay=args.adam_weight_decay,
-                          with_cuda=args.with_cuda, cuda_devices=args.cuda_devices, log_freq=args.log_freq,checkpoint=args.ckpt)
+                          with_cuda=args.with_cuda, cuda_devices=args.cuda_devices, log_freq=args.log_freq,checkpoint=args.ckpt, logdir=args.log_dir)
 
     print("Training Start")
     for epoch in range(args.epochs):

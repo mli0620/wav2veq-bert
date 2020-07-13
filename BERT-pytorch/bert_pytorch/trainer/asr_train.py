@@ -2,16 +2,17 @@ import torch
 import torch.nn as nn
 from torch.optim import Adam
 from torch.utils.data import DataLoader
-from tensorboardX import SummaryWriter
 
-from model import BERTLM, BERT
+from model import BERTLM, BERT, BERT_CTC
 from trainer.optim_schedule import ScheduledOptim
 
 import tqdm
 import sys
 import os
+from tensorboardX import SummaryWriter
 
-class BERTTrainer:
+
+class ASRTrainer:
     """
     BERTTrainer make the pretrained BERT model with two LM training method.
 
@@ -25,8 +26,7 @@ class BERTTrainer:
     def __init__(self, bert: BERT, vocab_size: int,
                  train_dataloader: DataLoader, test_dataloader: DataLoader = None,
                  lr: float = 1e-4, betas=(0.9, 0.999), weight_decay: float = 0.01, warmup_steps=10000,
-                 with_cuda: bool = True, cuda_devices=None, log_freq: int = 10, checkpoint= None,
-                 logdir='/mnt/lustre/xushuang2/mli/wav2veq-bert/BERT-pytorch/bert_pytorch/tensorboard'):
+                 with_cuda: bool = True, cuda_devices=None, log_freq: int = 10, checkpoint= None,logdir=None):
         """
         :param bert: BERT model which you want to train
         :param vocab_size: total word vocab size
@@ -48,12 +48,13 @@ class BERTTrainer:
         self.bert = bert
         # Initialize the BERT Language Model, with BERT model
         if not checkpoint:
-            self.model = BERTLM(bert, vocab_size).to(self.device)
+            self.model = BERT_CTC(bert, vocab_size).to(self.device)
         else:
             bert = torch.load(checkpoint)
-            self.model = BERTLM(bert, vocab_size).to(self.device)
+            self.model = BERT_CTC(bert, vocab_size).to(self.device)
             #print(1111,checkpoint)
             #sys.exit()
+        
         # Distributed GPU training if CUDA can detect more than 1 GPU
         if with_cuda and torch.cuda.device_count() > 1:
             print("Using %d GPUS for BERT" % torch.cuda.device_count())
@@ -104,19 +105,19 @@ class BERTTrainer:
 
         for i, data in data_iter:
             # 0. batch_data will be sent into the device(GPU or cpu)
-            data = {key: value.to(self.device) for key, value in data.items()}
-
+            bert_input, asr_label,ilens = data
+            print(1234123,asr_label.size(),bert_input.size(),ilens)
+            #data = {key: value.to(self.device) for key, value in data.items()}
             # 1. forward the next_sentence_prediction and masked_lm model
-            mask_lm_output = self.model.forward(data["bert_input"])
-
-            # 2-1. NLL(negative log likelihood) loss of is_next classification result
-
-            # 2-2. NLLLoss of predicting masked token word
-            mask_loss = self.criterion(mask_lm_output.transpose(1, 2), data["bert_label"])
-
-            # 2-3. Adding next_loss and mask_loss : 3.4 Pre-training Procedure
-            loss = mask_loss
-
+            #next_sent_output, mask_lm_output = self.model.forward(data["bert_input"], data["segment_label"])
+            #print(1111,data["bert_input"],len(data["bert_input"]))
+            #print(2222,data["bert_label"],len(data["bert_label"]))
+            #sys.exit()
+            #loss = self.model.forward(data["bert_input"])
+            loss = self.model.forward(bert_input,asr_label,ilens)
+            
+            print(loss)
+            sys.exit()
             # 3. backward and optimization only in train
             if train:
                 self.optim_schedule.zero_grad()
@@ -124,14 +125,18 @@ class BERTTrainer:
                 self.optim_schedule.step_and_update_lr()
 
             # next sentence prediction accuracy
+            #correct = next_sent_output.argmax(dim=-1).eq(data["is_next"]).sum().item()
             avg_loss += loss.item()
-            
+            #total_correct += correct
+            #total_element += data["is_next"].nelement()
             self.writer.add_scalar('train/loss', loss.item(), global_step=i)
+
 
             post_fix = {
                 "epoch": epoch,
                 "iter": i,
                 "avg_loss": avg_loss / (i + 1),
+                #"avg_acc": total_correct / total_element * 100,
                 "loss": loss.item()
             }
 
